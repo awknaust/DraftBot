@@ -349,7 +349,7 @@ async def post_pairings(bot, guild, session_id):
 
             for round_number, match_results in match_results_by_round.items():
                 embed = discord.Embed(title=f"Round {round_number} Pairings", color=discord.Color.blue())
-                from views import create_pairings_view  
+                from draft_views import create_pairings_view
                 view = await create_pairings_view(bot, guild, session_id, match_results)
 
                 for match_result in match_results:
@@ -378,7 +378,7 @@ async def post_pairings(bot, guild, session_id):
                 match_results_by_round.setdefault(round_number, []).append(match_result)
             for round_number, match_results in match_results_by_round.items():
                 embed = discord.Embed(title=f"Round {round_number} Pairings", color=discord.Color.blue())
-                from views import create_pairings_view
+                from draft_views import create_pairings_view
                 view = await create_pairings_view(bot, guild, session_id, match_results)
 
                 for match_result in match_results:
@@ -2065,7 +2065,7 @@ async def re_register_views(bot):
                                 
                                 # Add a button for each match result in this group
                                 for match_result in match_results:
-                                    from views import MatchResultButton
+                                    from draft_views import MatchResultButton
                                     
                                     # Determine button style based on match result
                                     button_style = discord.ButtonStyle.secondary  # Default for no result

@@ -4,7 +4,7 @@ from loguru import logger
 from modals import CubeDraftSelectionView, StakedCubeDraftSelectionView
 
 from session import DraftSession, MatchResult
-from views import MatchResultSelect
+from draft_views import MatchResultSelect
 from config import is_money_server
 from preference_service import get_player_dm_notification_preference, update_player_dm_notification_preference
 from helpers.display_names import get_display_name
