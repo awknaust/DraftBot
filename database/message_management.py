@@ -293,16 +293,48 @@ class DebtSummaryStickyStrategy(StickyStrategy):
         pass
 
 
+class RandomV2StickyStrategy(StickyStrategy):
+    """Strategy for Components V2 random draft sticky messages."""
+
+    async def validate_state(self, sticky_message: Message, session: AsyncSession) -> bool:
+        draft_session_id = sticky_message.view_metadata.get("draft_session_id")
+        draft_session = await get_draft_session(draft_session_id)
+        if not draft_session:
+            logger.warning(f"RandomV2StickyStrategy: session {draft_session_id} not found")
+            return False
+        return True
+
+    async def generate_content(
+        self, sticky_message: Message, bot: discord.Client, session: AsyncSession
+    ) -> Tuple[str, Optional[discord.Embed], Optional[discord.ui.View], Dict[str, Any]]:
+        from sessions.random_v2_view import RandomDraftV2View
+
+        metadata = sticky_message.view_metadata
+        view = await RandomDraftV2View.from_metadata(bot, metadata)
+        updated_metadata = metadata.copy()
+        return None, None, view, updated_metadata
+
+    async def on_update_success(
+        self, sticky_message: Message, new_message: discord.Message, bot: discord.Client, session: AsyncSession
+    ) -> None:
+        draft_session_id = sticky_message.view_metadata.get("draft_session_id")
+        draft_session = await get_draft_session(draft_session_id)
+        if draft_session:
+            draft_session = await session.merge(draft_session)
+            draft_session.message_id = str(new_message.id)
+
+
 def get_sticky_strategy(view_metadata: Dict[str, Any]) -> StickyStrategy:
     """Factory method to get the appropriate strategy."""
     view_type = view_metadata.get("view_type", "draft")
-    
+
     if view_type == "debt_summary":
         return DebtSummaryStickyStrategy()
+    elif view_type == "random_v2":
+        return RandomV2StickyStrategy()
     elif view_type == "draft" or view_type == "quiz":
         return DraftStickyStrategy()
     else:
-        # Default fallback
         logger.warning(f"Unknown view_type '{view_type}', falling back to DraftStickyStrategy")
         return DraftStickyStrategy()
 

@@ -37,16 +37,9 @@ class BaseSession:
                 # Start the connection manager as a background task
                 self.connection_task = asyncio.create_task(self.draft_manager.keep_connection_alive())
                 
-                # Step 3: Create Embed and Persistent View
-                embed = self.create_embed()
-                view = PersistentView(
-                    bot=bot,
-                    draft_session_id=new_draft_session.session_id,
-                    session_type=self.get_session_type(),
-                    team_a_name=new_draft_session.team_a_name,
-                    team_b_name=new_draft_session.team_b_name
-                )
-                await interaction.response.send_message(embed=embed, view=view)
+                # Step 3: Create view and send initial message
+                view = self._create_view(bot, new_draft_session)
+                await self._send_initial_message(interaction, bot, new_draft_session, view)
 
                 # Step 4: Get the original response message to set as sticky
                 message = await interaction.original_response()
@@ -113,6 +106,21 @@ class BaseSession:
     def _create_embed_content(self):
         """Implemented in subclasses to provide session-specific embed content."""
         raise NotImplementedError
+
+    def _create_view(self, bot, draft_session):
+        """Create the interactive view for this draft session. Override for V2."""
+        return PersistentView(
+            bot=bot,
+            draft_session_id=draft_session.session_id,
+            session_type=self.get_session_type(),
+            team_a_name=draft_session.team_a_name,
+            team_b_name=draft_session.team_b_name,
+        )
+
+    async def _send_initial_message(self, interaction, bot, draft_session, view):
+        """Send the initial draft message. Override for V2 (no embed)."""
+        embed = self.create_embed()
+        await interaction.response.send_message(embed=embed, view=view)
 
     def _add_signup_fields(self, embed):
         """Add signup-related fields to the embed. Override in subclasses for custom behavior."""
