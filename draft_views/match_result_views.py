@@ -31,6 +31,105 @@ async def create_pairings_view(bot, guild, session_id, match_results):
     return view
 
 
+class MatchResultModal(discord.ui.DesignerModal):
+    def __init__(self, bot, session_id, match_number, player1_name, player2_name):
+        self.bot = bot
+        self.session_id = session_id
+        self.match_number = match_number
+
+        self.result_select = discord.ui.Select(
+            select_type=discord.ComponentType.string_select,
+            placeholder=f"{player1_name} v. {player2_name}",
+            options=[
+                SelectOption(label=f"{player1_name} wins: 2-0", value="2-0-1"),
+                SelectOption(label=f"{player1_name} wins: 2-1", value="2-1-1"),
+                SelectOption(label=f"{player2_name} wins: 2-0", value="0-2-2"),
+                SelectOption(label=f"{player2_name} wins: 2-1", value="1-2-2"),
+                SelectOption(label="No Match Played", value="0-0-0"),
+            ],
+        )
+
+        label = discord.ui.Label(
+            f"Match {match_number}: {player1_name} vs {player2_name}",
+            self.result_select,
+        )
+
+        super().__init__(label, title=f"Match {match_number} Result")
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        try:
+            player1_wins, player2_wins, winner_indicator = self.result_select.values[0].split('-')
+            player1_wins = int(player1_wins)
+            player2_wins = int(player2_wins)
+            winner_id = None
+
+            draft_session = None
+
+            async with AsyncSessionLocal() as session:
+                async with session.begin():
+                    stmt = select(MatchResult, DraftSession).join(DraftSession).where(
+                        MatchResult.session_id == self.session_id,
+                        MatchResult.match_number == self.match_number,
+                    )
+                    result = await session.execute(stmt)
+                    row = result.first()
+
+                    if not row:
+                        await interaction.followup.send("Error: Match result or session not found.", ephemeral=True)
+                        return
+
+                    match_result, draft_session = row
+
+                    if match_result:
+                        match_result.player1_wins = player1_wins
+                        match_result.player2_wins = player2_wins
+                        if winner_indicator != '0':
+                            winner_id = match_result.player1_id if winner_indicator == '1' else match_result.player2_id
+                        match_result.winner_id = winner_id
+
+                        await session.commit()
+
+                        if draft_session and (draft_session.session_type == "random" or draft_session.session_type == "staked"):
+                            streak_extensions = await update_player_stats_and_elo(match_result)
+
+                            store_match_streak_extensions(
+                                self.session_id,
+                                match_result.player1_id,
+                                match_result.player2_id,
+                                streak_extensions,
+                            )
+
+                            if winner_id:
+                                loser_id = match_result.player2_id if winner_id == match_result.player1_id else match_result.player1_id
+                                from services.ring_bearer_service import check_match_defeat_transfer
+                                await check_match_defeat_transfer(
+                                    bot=self.bot,
+                                    guild_id=str(draft_session.guild_id),
+                                    winner_id=winner_id,
+                                    loser_id=loser_id,
+                                    session_id=self.session_id,
+                                )
+
+            if draft_session:
+                await update_draft_summary_message(self.bot, self.session_id)
+                from livedrafts import update_live_draft_summary
+                await update_live_draft_summary(self.bot, self.session_id)
+                if draft_session.session_type != "test":
+                    await check_and_post_victory_or_draw(self.bot, self.session_id)
+                await _update_pairings_posting(interaction, self.bot, self.session_id, self.match_number)
+            else:
+                logger.error(f"Draft session data missing for session {self.session_id}")
+                await interaction.followup.send("Error: Could not retrieve draft session data.", ephemeral=True)
+
+        except Exception as e:
+            logger.exception(f"Error in match result modal: {e}")
+            try:
+                await interaction.followup.send("An error occurred while updating the match result.", ephemeral=True)
+            except Exception:
+                pass
+
+
 class MatchResultButton(Button):
     def __init__(self, bot, session_id, match_id, match_number, label, *args, **kwargs):
         super().__init__(label=label, *args, **kwargs)
@@ -40,29 +139,24 @@ class MatchResultButton(Button):
         self.match_number = match_number
 
     async def callback(self, interaction):
-        await interaction.response.defer()
-
         try:
             player1_name, player2_name = await fetch_match_details(self.bot, self.session_id, self.match_number)
 
             if not player1_name or not player2_name:
-                await interaction.followup.send("Error: Could not fetch match details.", ephemeral=True)
+                await interaction.response.send_message("Error: Could not fetch match details.", ephemeral=True)
                 return
 
-            match_result_select = MatchResultSelect(
-                match_number=self.match_number,
+            modal = MatchResultModal(
                 bot=self.bot,
                 session_id=self.session_id,
+                match_number=self.match_number,
                 player1_name=player1_name,
                 player2_name=player2_name,
             )
-
-            view = View(timeout=None)
-            view.add_item(match_result_select)
-            await interaction.followup.send("Please select the match result:", view=view, ephemeral=True)
+            await interaction.response.send_modal(modal)
         except Exception as e:
             logger.exception(f"Error in match result button: {e}")
-            await interaction.followup.send("An error occurred while fetching match details.", ephemeral=True)
+            await interaction.response.send_message("An error occurred while fetching match details.", ephemeral=True)
 
 
 class MatchResultSelect(Select):
