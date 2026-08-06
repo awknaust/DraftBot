@@ -93,6 +93,16 @@ pipenv run python -m pytest tests/test_seating_order.py::TestSeatingOrder::test_
 
 **Why `python -m pytest`?** Running pytest as a module (`python -m pytest`) automatically adds the current directory to Python's path, allowing tests to import project modules (`models`, `utils`, etc.) without additional configuration. Using just `pytest` will result in import errors.
 
+#### Simulating a trophy quiz locally (no prod data)
+
+With `TEST_MODE=true` in `.env`, you can test the full trophy quiz flow without Spaces or MagicProTools credentials:
+
+```bash
+pipenv run python scripts/seed_test_trophy_quiz.py --guild-id <TEST_GUILD_ID> --me <YOUR_DISCORD_ID>
+```
+
+Run from the repo root (drafts.db is a relative path), then use `/post_trophy_quiz` in the test guild. Each quiz consumes one seeded draft — re-run the script for another; `--purge` cleans up all seeded rows. See the script docstring for details.
+
 ## Code Patterns and Conventions
 
 ### Configuration System

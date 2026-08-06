@@ -8,6 +8,7 @@ from discord.ext import commands
 from loguru import logger
 from sqlalchemy import and_, func, select, update
 
+from config import is_test_mode
 from database.db_session import db_session
 from helpers.permissions import has_bot_manager_role
 from helpers.magicprotools_helper import MagicProtoolsHelper
@@ -90,6 +91,15 @@ async def _select_eligible_draft(
         drafts_checked += 1
         try:
             draft_data = await load_from_spaces(draft.spaces_object_key)
+            if not draft_data and is_test_mode() and draft.draft_data:
+                # TEST_MODE only: no Spaces credentials locally — use the DB copy
+                # of the log (always written at capture time; post_team_logs
+                # reads it the same way).
+                logger.info(
+                    f"[trophy-quiz][test-mode] Spaces unavailable; using DB "
+                    f"draft_data for {draft.session_id}"
+                )
+                draft_data = draft.draft_data
             if not draft_data:
                 continue
 
@@ -166,6 +176,15 @@ class TrophyQuizCommands(commands.Cog):
             split = splits.get(deck["drafter_id"])
             deck_text = build_mtgo_deck_text(split, carddata) if split else None
             url = await mpt.submit_deck_view(dm_id, draft_data, deck_text) if deck_text else None
+            if not url and deck_text and is_test_mode():
+                # TEST_MODE only: no MPT_API_KEY locally — a placeholder link
+                # keeps the flow going. The deck_text guard stays: genuinely
+                # broken data must still abort, even in test mode.
+                url = f"https://example.com/test-mode-deck/{draft_session.session_id}/{dm_id}"
+                logger.warning(
+                    f"[trophy-quiz][test-mode] MPT unavailable; using placeholder "
+                    f"deck link for drafter {deck['drafter_id']}"
+                )
             if not url:
                 logger.error(
                     f"[trophy-quiz] MPT deck view failed for draft {draft_session.session_id} "
