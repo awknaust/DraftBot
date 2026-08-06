@@ -103,6 +103,10 @@ pipenv run python scripts/seed_test_trophy_quiz.py --guild-id <TEST_GUILD_ID> --
 
 Run from the repo root (drafts.db is a relative path), then use `/post_trophy_quiz` in the test guild. Each quiz consumes one seeded draft — re-run the script for another; `--purge` cleans up all seeded rows. See the script docstring for details.
 
+#### Discord-in-the-loop testing (Claude-driven)
+
+Claude can drive the test Discord server itself — run slash commands, click bot components, and screenshot the results — via the `discord-test` project skill (`.claude/skills/discord-test/SKILL.md`). Requires `TEST_GUILD_ID` in `.env` and a dedicated logged-in test account in the in-app browser; see the skill for the safety rails.
+
 ## Code Patterns and Conventions
 
 ### Configuration System
