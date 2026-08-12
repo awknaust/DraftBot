@@ -4,8 +4,15 @@ import os
 from pathlib import Path
 import logging
 
+logger = logging.getLogger(__name__)
+
 # Your specific guild ID
 SPECIAL_GUILD_ID = "336345350535118849"
+
+# Where per-guild config JSON lives. Overridable so tests (and alternate
+# deployments) never write into the repo's configs/ directory.
+CONFIG_DIR_ENV_VAR = "DRAFTBOT_CONFIG_DIR"
+DEFAULT_CONFIG_DIR = "configs"
 
 # Base URL for Draftmancer service
 # Change this to switch between environments (prod, beta, dev)
@@ -23,6 +30,20 @@ DEFAULT_DEBT_WARNING_THRESHOLD = 100
 def is_test_mode() -> bool:
     """Returns True if TEST_MODE env var is set to a truthy value."""
     return os.environ.get("TEST_MODE", "false").lower() in ("true", "1", "yes")
+
+def get_config_dir() -> Path:
+    """Directory holding per-guild config files, honoring DRAFTBOT_CONFIG_DIR."""
+    return Path(os.environ.get(CONFIG_DIR_ENV_VAR) or DEFAULT_CONFIG_DIR)
+
+def is_valid_guild_id(guild_id) -> bool:
+    """Discord guild IDs are snowflakes: ASCII decimal digits, nothing else.
+
+    Config file names are derived from the guild ID, so anything else (a
+    MagicMock repr leaking out of a test, a Discord object passed by mistake)
+    must never reach the filesystem.
+    """
+    guild_id = str(guild_id)
+    return guild_id.isascii() and guild_id.isdigit()
 
 class Config:
     def __init__(self):
@@ -244,14 +265,17 @@ class Config:
         self.load_configs()
     
     def load_configs(self):
-        config_dir = Path("configs")
+        config_dir = get_config_dir()
         if not config_dir.exists():
-            config_dir.mkdir(exist_ok=True)
-            
+            config_dir.mkdir(parents=True, exist_ok=True)
+
         # Load existing guild configs
         for config_file in config_dir.glob("*.json"):
+            guild_id = config_file.stem
+            if not is_valid_guild_id(guild_id):
+                logger.warning(f"Skipping config file with non-guild-id name: {config_file.name}")
+                continue
             try:
-                guild_id = config_file.stem
                 with open(config_file, "r") as f:
                     self.configs[guild_id] = json.load(f)
             except Exception as e:
@@ -270,13 +294,19 @@ class Config:
     
     def save_config(self, guild_id):
         guild_id = str(guild_id)
-        config_dir = Path("configs")
+        if not is_valid_guild_id(guild_id):
+            # In-memory config is still usable; only persistence is refused.
+            logger.warning(f"Refusing to write config file for non-guild-id: {guild_id!r}")
+            return False
+
+        config_dir = get_config_dir()
         if not config_dir.exists():
-            config_dir.mkdir(exist_ok=True)
-            
-        config_path = Path(f"configs/{guild_id}.json")
+            config_dir.mkdir(parents=True, exist_ok=True)
+
+        config_path = config_dir / f"{guild_id}.json"
         with open(config_path, "w") as f:
             json.dump(self.configs[guild_id], f, indent=2)
+        return True
     
     def update_guild_setting(self, guild_id, path, value):
         guild_id = str(guild_id)
@@ -299,9 +329,8 @@ class Config:
                 if part not in current:
                     current[part] = {}
                 current = current[part]
-        
-        self.save_config(guild_id)
-        return True
+
+        return self.save_config(guild_id)
 
 # Initialize the config
 bot_config = Config()
@@ -313,7 +342,7 @@ def save_config(guild_id, config=None):
     if config:
         guild_id = str(guild_id)
         bot_config.configs[guild_id] = config
-    bot_config.save_config(guild_id)
+    return bot_config.save_config(guild_id)
 
 def is_special_guild(guild_id):
     """Helper function to check if this is your special guild"""
