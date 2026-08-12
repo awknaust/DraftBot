@@ -88,8 +88,12 @@ Stop with TaskStop on the background task when testing is done.
 
 - Open `https://discord.com/channels/<TEST_GUILD_ID>` in the in-app browser
   pane (never the user's real Chrome).
-- If Discord shows a login page instead of the app, hand off to the user to log
-  in manually (dedicated test account), then continue.
+- If Discord shows a login page instead of the app, RELOAD once before
+  concluding you're logged out. A first load can bail to `/login` and then
+  collapse to a bare `img "Loading"` spinner while the stored session is
+  still good — seen live; the re-navigate came up authenticated. Only when
+  the login form survives a reload is the session really gone: hand off to
+  the user to log in manually (dedicated test account), then continue.
 - The browser can close or relaunch mid-session (it did in a live run) — a
   relaunch may keep the login (persistent profile) or lose it. After ANY
   relaunch, re-verify the guild sidebar before continuing, and expect to
@@ -195,21 +199,45 @@ walking/scanning, and verify every landing off a screenshot.
 
 ## Playwright-driven sessions (proven alternative to the in-app pane)
 
-A full run over the Playwright MCP (CLI/WSL, headed Chrome via WSLg for the
-login handoff) validated PR #394 end-to-end. The core recipes above hold;
+Full runs over the Playwright MCP have validated PR #394 (CLI/WSL, headed
+Chrome via WSLg) and PR #398 (macOS desktop app). The core recipes above hold;
 these are the deltas, learned live:
 
 - **Dropdown options HAVE refs.** Playwright's accessibility tree exposes
   select options as a `listbox` with `option` refs — ref-click them directly
   (worked first-try, four for four). Skip the screenshot-pixel recipe
   entirely; it's an in-app-pane workaround.
+- **The headed window is a SECOND "Google Chrome".** Same dock icon as the
+  developer's own, and it opens behind everything — "the browser isn't doing
+  anything" usually means buried, not broken. Its profile is persistent
+  (`~/Library/Caches/ms-playwright-mcp/mcp-chrome-<hash>` on macOS), so a
+  login carries into later sessions. Don't try to diagnose the window with
+  osascript: without assistive access, System Events reports zero windows and
+  you'll wrongly conclude it's headless.
 - **Search, don't read whole pages.** `browser_find` (text/regex over the
   tree) to locate elements, then `browser_snapshot` with `target=<ref>` for
   just that subtree — a busy Discord channel's full tree is enormous and
-  mostly noise.
+  mostly noise. Anchor the regex to tree syntax (`/button "Sign Up"/`,
+  `/option "\/draft/`); bare words also match message bodies channel-wide and
+  return pages of context. `browser_click` wants a ref or selector in
+  `target` — a human-readable name there fails as a CSS parse error; the
+  description goes in `element`.
 - **Screenshots are plain files.** `browser_take_screenshot` writes a PNG on
   disk — the transcript-base64 extraction recipe above is in-app-pane-only.
-  Move evidence PNGs out of the repo when done (see Teardown).
+  Paths are root-restricted: absolutes outside the repo are rejected and bare
+  relative names resolve to the repo root, so write `.playwright-mcp/<name>.png`
+  and copy the keepers out when done (see Teardown). Capture at NATIVE
+  resolution and crop with ffmpeg afterwards — `scale: "device"` reads the
+  context DPR, so a CDP `Emulation` override never reaches the capture, and
+  zoom/metrics hacks are ruled out by developer preference anyway.
+- **No video in this build** (no `--save-video`, no `--save-trace`). A
+  `--config` file setting `browser.contextOptions.recordVideo` is the only
+  route and needs the MCP server restarted, so decide before the run starts.
+- **Clear the frame before capturing evidence.** Stale ephemerals from earlier
+  steps and Discord's own nudge popups (e.g. "Control who sees your full
+  profile") land in the shot. Dismiss ephemerals via "Dismiss message" and
+  popups via the dialog's **Close** button — never the settings CTA, which is
+  an account-settings change.
 - The guardrail hooks cover Playwright navigation too (the matcher is any
   tool containing "navigate"), but the browser needs Playwright's branded
   Chrome installed (`sudo env "PATH=$PATH" npx playwright install chrome` —
